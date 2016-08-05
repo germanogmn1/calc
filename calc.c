@@ -91,7 +91,9 @@ typedef struct {
 
 static void print_token(Token tk) {
 	switch (tk.type) {
-		case TK_NULL: assert(0);
+		case TK_NULL:
+			assert(0);
+			break;
 		case TK_NUMBER:
 			printf("%.17g", tk.number);
 			break;
@@ -249,10 +251,12 @@ int main(int argc, char **argv) {
 
 	while ((status = eat_token(&token, &cursor)) == 1) {
 		switch (token.type) {
-			case TK_NULL: assert(0);
-			case TK_NUMBER:
+			case TK_NULL: {
+				assert(0);
+			} break;
+			case TK_NUMBER:{
 				tk_push(&output, token);
-				break;
+			} break;
 			case TK_OPERATOR: {
 				Operator *op1 = token.operator;
 				if (!op1->unary) {
@@ -278,9 +282,9 @@ int main(int argc, char **argv) {
 				tk_push(&operators, token);
 			} break;
 			case TK_FUNCTION:
-			case TK_LPAREN:
+			case TK_LPAREN:{
 				tk_push(&operators, token);
-				break;
+			} break;
 			case TK_RPAREN: {
 				for (;;) {
 					Token *top = tk_top(&operators);
@@ -300,7 +304,7 @@ int main(int argc, char **argv) {
 				if (top && top->type == TK_FUNCTION)
 					tk_push(&output, tk_pop(&operators));
 			} break;
-			case TK_COMMA:
+			case TK_COMMA: {
 				for (;;) {
 					Token *top = tk_top(&operators);
 					if (!top) {
@@ -313,15 +317,15 @@ int main(int argc, char **argv) {
 
 					tk_push(&output, tk_pop(&operators));
 				}
-				break;
-			}
+			} break;
+		}
 
-			print_token(token);
-			printf("\toperators [");
-			print_stack(&operators);
-			printf("] output [");
-			print_stack(&output);
-			printf("]\n");
+		print_token(token);
+		printf("\toperators [");
+		print_stack(&operators);
+		printf("] output [");
+		print_stack(&output);
+		printf("]\n");
 	}
 	if (status == -1)
 		return 1;
@@ -349,9 +353,9 @@ int main(int argc, char **argv) {
 		Token tk = output.tokens[i];
 
 		switch (tk.type) {
-			case TK_NUMBER:
+			case TK_NUMBER: {
 				tk_push(&eval_stack, tk);
-				break;
+			} break;
 			case TK_OPERATOR: {
 				Token rhs = tk_pop(&eval_stack);
 				Token lhs = {};
@@ -420,11 +424,12 @@ int main(int argc, char **argv) {
 				print_stack(&eval_stack);
 				printf("]\n");
 			} break;
-			default:
+			default: {
 				printf("Unexpected token on eval stack ");
 				print_token(tk);
 				printf("\n");
 				assert(0);
+			}
 		}
 	}
 
