@@ -1,0 +1,3 @@
+#!/bin/bash
+
+clang calc.c -O2 -Wall --std=c11 -lm -o calc
