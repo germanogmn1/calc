@@ -60,7 +60,7 @@ typedef struct {
 } Function;
 
 static Function functions[] = {
-	{ FN_MAX,  "max",  2 },
+	{ FN_MAX,  "max",  -1 },
 	{ FN_SUM,  "sum",  3 },
 	{ FN_SQRT, "sqrt", 1 },
 };
@@ -85,7 +85,10 @@ typedef struct {
 	union {
 		double number;
 		Operator *operator;
-		Function *function;
+		struct {
+			Function *function;
+			int call_arity;
+		};
 	};
 } Token;
 
@@ -135,7 +138,7 @@ static inline void tk_push(TokenStack *stk, Token tk) {
 }
 
 static inline Token tk_pop(TokenStack *stk) {
-	if (stk->len == 0) {
+	if (stk->len <= 0) {
 		fprintf(stderr, "pop on empty stack\n");
 		exit(1);
 	}
@@ -157,6 +160,39 @@ static void print_stack(TokenStack *stk) {
 			printf(" ");
 		print_token(stk->tokens[i]);
 	}
+}
+
+
+/*
+ * Function arity stack
+ */
+
+typedef struct {
+	int *data;
+	int cap;
+	int len;
+} ArityStack;
+
+static inline void arity_push(ArityStack *stk) {
+	if (stk->len >= stk->cap) {
+		fprintf(stderr, "arity stack overflow\n");
+		exit(1);
+	}
+	stk->data[stk->len++] = 1;
+}
+
+static inline void arity_inc(ArityStack *stk) {
+	stk->data[stk->len - 1]++;
+}
+
+static inline int arity_pop(ArityStack *stk) {
+	if (stk->len <= 0) {
+		fprintf(stderr, "pop on empty arity stack\n");
+		exit(1);
+	}
+	int result = stk->data[stk->len - 1];
+	stk->len--;
+	return result;
 }
 
 
@@ -210,7 +246,7 @@ static int eat_token(Token *last_tk, char **str) {
 		
 		int t = last_tk->type;
 		bool unary = (t == TK_NULL || t == TK_OPERATOR || t == TK_LPAREN);
-		// TODO check if binary operator is in a valid place
+		// TODO check if binary operator is in a valid position
 
 		for (int i = 0; i < countof(operators); i++) {
 			if (operators[i].sym == *at && operators[i].unary == unary) {
@@ -241,9 +277,11 @@ int main(int argc, char **argv) {
 
 	static Token operators_data[256];
 	static Token output_data[256];
+	static int arity_data[256];
 
 	TokenStack operators = { operators_data, countof(operators_data) };
 	TokenStack output = { output_data, countof(output_data) };
+	ArityStack arity = { arity_data, countof(arity_data) };
 
 	char *cursor = argv[1];
 	int status = 0;
@@ -254,7 +292,7 @@ int main(int argc, char **argv) {
 			case TK_NULL: {
 				assert(0);
 			} break;
-			case TK_NUMBER:{
+			case TK_NUMBER: {
 				tk_push(&output, token);
 			} break;
 			case TK_OPERATOR: {
@@ -282,7 +320,8 @@ int main(int argc, char **argv) {
 				tk_push(&operators, token);
 			} break;
 			case TK_FUNCTION:
-			case TK_LPAREN:{
+				arity_push(&arity); // fallthrough
+			case TK_LPAREN: {
 				tk_push(&operators, token);
 			} break;
 			case TK_RPAREN: {
@@ -301,10 +340,14 @@ int main(int argc, char **argv) {
 				tk_pop(&operators); // pop the '('
 
 				Token *top = tk_top(&operators);
-				if (top && top->type == TK_FUNCTION)
-					tk_push(&output, tk_pop(&operators));
+				if (top && top->type == TK_FUNCTION) {
+					Token func = tk_pop(&operators);
+					func.call_arity = arity_pop(&arity);
+					tk_push(&output, func);
+				}
 			} break;
 			case TK_COMMA: {
+				arity_inc(&arity);
 				for (;;) {
 					Token *top = tk_top(&operators);
 					if (!top) {
@@ -325,6 +368,9 @@ int main(int argc, char **argv) {
 		print_stack(&operators);
 		printf("] output [");
 		print_stack(&output);
+		printf("] arity [");
+		for (int i = 0; i < arity.len; i++)
+			printf("%s%d", i ? " " : "", arity.data[i]);
 		printf("]\n");
 	}
 	if (status == -1)
@@ -360,7 +406,7 @@ int main(int argc, char **argv) {
 				Token rhs = tk_pop(&eval_stack);
 				Token lhs = {};
 				if (tk.operator->unary)
-					lhs.number = -99999; // for debug
+					lhs.number = NAN;
 				else
 					lhs = tk_pop(&eval_stack);
 
@@ -386,24 +432,36 @@ int main(int argc, char **argv) {
 				printf("]\n");
 			} break;
 			case TK_FUNCTION: {
-				// printf("## %s arity = %d stack = [", tk.function->name, tk.function->arity);
-				// print_stack(&eval_stack);
-				// printf("]\n");
 				Token result = { TK_NUMBER };
+				Function *fun = tk.function;
+
+				if (fun->arity == -1) {
+					if (tk.call_arity < 1) {
+						fprintf(stderr, "error: variadic function \"%s\" takes at least 1 argument (0 given)\n",
+							fun->name);
+						exit(1);
+					}
+				} else if (tk.call_arity != fun->arity) {
+					fprintf(stderr, "error: function \"%s\" takes %d arguments (%d given)\n",
+						fun->name, fun->arity, tk.call_arity);
+					exit(1);
+				}
 
 				double fargs[16];
-				assert(tk.function->arity <= countof(fargs));
-
+				assert(tk.call_arity <= countof(fargs));
 				// pop in reverse order
-				for (int i = tk.function->arity - 1; i >= 0; i--) {
+				for (int i = tk.call_arity - 1; i >= 0; i--) {
 					Token tk = tk_pop(&eval_stack);
 					assert(tk.type == TK_NUMBER);
 					fargs[i] = tk.number;
 				}
 
-				switch (tk.function->id) {
+				switch (fun->id) {
 					case FN_MAX: {
-						result.number = fargs[0] > fargs[1] ? fargs[0] : fargs[1];
+						double max = fargs[0];
+						for (int i = 1; i < tk.call_arity; i++)
+							max = fargs[i] > max ? fargs[i] : max;
+						result.number = max;
 					} break;
 					case FN_SUM: {
 						result.number = fargs[0] + fargs[1] + fargs[2];
@@ -414,8 +472,8 @@ int main(int argc, char **argv) {
 				}
 				tk_push(&eval_stack, result);
 
-				printf("> %s(", tk.function->name);
-				for (int i = 0; i < tk.function->arity; i++) {
+				printf("> %s(", fun->name);
+				for (int i = 0; i < tk.call_arity; i++) {
 					if (i)
 						printf(", ");
 					printf("%g", fargs[i]);
