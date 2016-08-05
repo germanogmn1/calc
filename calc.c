@@ -9,19 +9,43 @@
 
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
+
+/*
+ * Operators
+ */
+
+typedef enum {
+	OP_BINADD,
+	OP_BINSUB,
+	OP_BINMUL,
+	OP_BINDIV,
+	OP_BINPOW,
+	OP_UNPLUS,
+	OP_UNMINUS,
+} OperatorId;
+
 typedef struct {
+	OperatorId id;
 	char sym;
 	int precedence;
 	bool lassoc;
+	bool unary;
 } Operator;
 
 static Operator operators[] = {
-	{ '^', 3, false },
-	{ '*', 2, true },
-	{ '/', 2, true },
-	{ '+', 1, true },
-	{ '-', 1, true },
+	{ OP_BINADD,  '+', 1, true,  false },
+	{ OP_BINSUB,  '-', 1, true,  false },
+	{ OP_BINMUL,  '*', 2, true,  false },
+	{ OP_BINDIV,  '/', 2, true,  false },
+	{ OP_BINPOW,  '^', 3, false, false },
+	{ OP_UNPLUS,  '+', 4, false, true },
+	{ OP_UNMINUS, '-', 4, false, true },
 };
+
+
+/*
+ * Functions
+ */
 
 typedef enum {
 	FN_MAX,
@@ -41,7 +65,13 @@ static Function functions[] = {
 	{ FN_SQRT, "sqrt", 1 },
 };
 
+
+/*
+ * Tokens
+ */
+
 typedef enum {
+	TK_NULL,
 	TK_NUMBER,
 	TK_OPERATOR,
 	TK_FUNCTION,
@@ -61,11 +91,12 @@ typedef struct {
 
 static void print_token(Token tk) {
 	switch (tk.type) {
+		case TK_NULL: assert(0);
 		case TK_NUMBER:
-			printf("%g", tk.number);
+			printf("%.17g", tk.number);
 			break;
 		case TK_OPERATOR:
-			printf("%c", tk.operator->sym);
+			printf("%s%c", tk.operator->unary ? "@" : "", tk.operator->sym);
 			break;
 		case TK_FUNCTION:
 			printf("%s", tk.function->name);
@@ -82,72 +113,10 @@ static void print_token(Token tk) {
 	}
 }
 
-// Return codes:
-// 1 got a token
-// 0 end of input
-// -1 error
-static int eat_token(Token *tk, char **str) {
-	char *at = *str;
 
-	while (isspace(*at))
-		at++;
-
-	if (!*at)
-		return 0;
-
-	*tk = (Token){};
-
-	if (isdigit(*at)) {
-		tk->type = TK_NUMBER;
-
-		char *end = NULL;
-		tk->number = strtod(at, &end);
-		at = end;
-	} else if (isalpha(*at)) {
-		tk->type = TK_FUNCTION;
-
-		char name[sizeof(tk->function->name)] = {};
-		for (int i = 0; isalnum(*at) && i < sizeof(name) - 1; i++)
-			name[i] = *at++;
-
-		for (int i = 0; i < countof(functions); i++) {
-			if (!strcmp(name, functions[i].name))
-				tk->function = functions + i;
-		}
-		if (!tk->function) {
-			fprintf(stderr, "undefined function \"%s\"\n", name);
-			return -1;
-		}
-	} else if (*at == '(')	{
-		at++;
-		tk->type = TK_LPAREN;
-	} else if (*at == ')')	{
-		at++;
-		tk->type = TK_RPAREN;
-	} else if (*at == ',')	{
-		at++;
-		tk->type = TK_COMMA;
-	} else {
-		Operator *op = NULL;
-		for (int i = 0; i < countof(operators); i++) {
-			if (operators[i].sym == *at) {
-				op = operators + i;
-				break;
-			}
-		}
-		if (op) {
-			tk->type = TK_OPERATOR;
-			tk->operator = op;
-			at++;
-		} else {
-			fprintf(stderr, "Invalid token at \"%s\"\n", at);
-			return -1;
-		}
-	}
-
-	*str = at;
-	return 1;
-}
+/*
+ * Token stack
+ */
 
 typedef struct {
 	Token *tokens;
@@ -188,6 +157,81 @@ static void print_stack(TokenStack *stk) {
 	}
 }
 
+
+// Return codes:
+// 1 got a token
+// 0 end of input
+// -1 error
+static int eat_token(Token *last_tk, char **str) {
+	char *at = *str;
+
+	while (isspace(*at))
+		at++;
+
+	if (!*at)
+		return 0;
+
+	Token tk = {};
+
+	if (isdigit(*at)) {
+		tk.type = TK_NUMBER;
+
+		char *end = NULL;
+		tk.number = strtod(at, &end);
+		at = end;
+	} else if (isalpha(*at)) {
+		tk.type = TK_FUNCTION;
+
+		char name[sizeof(tk.function->name)] = {};
+		for (int i = 0; isalnum(*at) && i < sizeof(name) - 1; i++)
+			name[i] = *at++;
+
+		for (int i = 0; i < countof(functions); i++) {
+			if (!strcmp(name, functions[i].name))
+				tk.function = functions + i;
+		}
+		if (!tk.function) {
+			fprintf(stderr, "undefined function \"%s\"\n", name);
+			return -1;
+		}
+	} else if (*at == '(')	{
+		at++;
+		tk.type = TK_LPAREN;
+	} else if (*at == ')')	{
+		at++;
+		tk.type = TK_RPAREN;
+	} else if (*at == ',')	{
+		at++;
+		tk.type = TK_COMMA;
+	} else {
+		Operator *op = NULL;
+		
+		int t = last_tk->type;
+		bool unary = (t == TK_NULL || t == TK_OPERATOR || t == TK_LPAREN);
+		// TODO check if binary operator is in a valid place
+
+		for (int i = 0; i < countof(operators); i++) {
+			if (operators[i].sym == *at && operators[i].unary == unary) {
+				op = operators + i;
+				break;
+			}
+		}
+
+		if (op) {
+			tk.type = TK_OPERATOR;
+			tk.operator = op;
+			at++;
+		} else {
+			fprintf(stderr, "Invalid token at \"%s\"\n", at);
+			return -1;
+		}
+	}
+
+	*str = at;
+	*last_tk = tk;
+	return 1;
+}
+
 int main(int argc, char **argv) {
 	if (argc < 2) {
 		return 1;
@@ -201,31 +245,34 @@ int main(int argc, char **argv) {
 
 	char *cursor = argv[1];
 	int status = 0;
-	Token token;
+	Token token = {};
 
 	while ((status = eat_token(&token, &cursor)) == 1) {
 		switch (token.type) {
+			case TK_NULL: assert(0);
 			case TK_NUMBER:
 				tk_push(&output, token);
 				break;
 			case TK_OPERATOR: {
 				Operator *op1 = token.operator;
-				for (;;) {
-					Token *top = tk_top(&operators);
+				if (!op1->unary) {
+					for (;;) {
+						Token *top = tk_top(&operators);
 
-					bool move = false;
-					if (top && top->type == TK_OPERATOR) {
-						Operator *op2 = top->operator;
-						if (op1->lassoc) {
-							move = (op1->precedence <= op2->precedence);
-						} else {
-							move = (op1->precedence < op2->precedence);
+						bool move = false;
+						if (top && top->type == TK_OPERATOR) {
+							Operator *op2 = top->operator;
+							if (op1->lassoc) {
+								move = (op1->precedence <= op2->precedence);
+							} else {
+								move = (op1->precedence < op2->precedence);
+							}
 						}
-					}
-					if (move) {
-						tk_push(&output, tk_pop(&operators));
-					} else {
-						break;
+						if (move) {
+							tk_push(&output, tk_pop(&operators));
+						} else {
+							break;
+						}
 					}
 				}
 				tk_push(&operators, token);
@@ -307,21 +354,30 @@ int main(int argc, char **argv) {
 				break;
 			case TK_OPERATOR: {
 				Token rhs = tk_pop(&eval_stack);
-				Token lhs = tk_pop(&eval_stack);
-				assert(lhs.type == TK_NUMBER && rhs.type == TK_NUMBER);
+				Token lhs = {};
+				if (tk.operator->unary)
+					lhs.number = -99999; // for debug
+				else
+					lhs = tk_pop(&eval_stack);
+
+				assert((lhs.type == TK_NULL || lhs.type == TK_NUMBER) && rhs.type == TK_NUMBER);
 
 				Token result = { TK_NUMBER };
-				switch (tk.operator->sym) {
-					case '^': result.number = pow(lhs.number, rhs.number); break;
-					case '*': result.number = lhs.number * rhs.number; break;
-					case '/': result.number = lhs.number / rhs.number; break;
-					case '+': result.number = lhs.number + rhs.number; break;
-					case '-': result.number = lhs.number - rhs.number; break;
-					default: assert(!"unknown operator");
+				switch (tk.operator->id) {
+					case OP_BINADD:  result.number = lhs.number + rhs.number; break;
+					case OP_BINSUB:  result.number = lhs.number - rhs.number; break;
+					case OP_BINMUL:  result.number = lhs.number * rhs.number; break;
+					case OP_BINDIV:  result.number = lhs.number / rhs.number; break;
+					case OP_BINPOW:  result.number = pow(lhs.number, rhs.number); break;
+					case OP_UNPLUS:  result.number = rhs.number; break;
+					case OP_UNMINUS: result.number = -rhs.number; break;
 				}
 				tk_push(&eval_stack, result);
 
-				printf("> %g %c %g => [", lhs.number, tk.operator->sym, rhs.number);
+				if (tk.operator->unary)
+					printf("> %c%g => [", tk.operator->sym, rhs.number);
+				else
+					printf("> %g %c %g => [", lhs.number, tk.operator->sym, rhs.number);
 				print_stack(&eval_stack);
 				printf("]\n");
 			} break;
