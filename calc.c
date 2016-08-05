@@ -178,7 +178,15 @@ static inline void arity_push(ArityStack *stk) {
 		fprintf(stderr, "arity stack overflow\n");
 		exit(1);
 	}
-	stk->data[stk->len++] = 1;
+	stk->data[stk->len++] = 0;
+}
+
+static inline void arity_has_arg(ArityStack *stk) {
+	if (stk->len > 0) {
+		int *top = stk->data + (stk->len - 1);
+		if (!*top)
+			*top = 1;
+	}
 }
 
 static inline void arity_inc(ArityStack *stk) {
@@ -288,6 +296,9 @@ int main(int argc, char **argv) {
 	Token token = {};
 
 	while ((status = eat_token(&token, &cursor)) == 1) {
+		if (token.type != TK_RPAREN && token.type != TK_LPAREN) {
+			arity_has_arg(&arity);
+		}
 		switch (token.type) {
 			case TK_NULL: {
 				assert(0);
