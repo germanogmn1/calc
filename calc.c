@@ -19,6 +19,7 @@ typedef enum {
 	OP_BINSUB,
 	OP_BINMUL,
 	OP_BINDIV,
+	OP_BINREM,
 	OP_BINPOW,
 	OP_UNPLUS,
 	OP_UNMINUS,
@@ -37,6 +38,7 @@ static Operator operators[] = {
 	{ OP_BINSUB,  '-', 1, true,  false },
 	{ OP_BINMUL,  '*', 2, true,  false },
 	{ OP_BINDIV,  '/', 2, true,  false },
+	{ OP_BINREM,  '%', 2, true,  false },
 	{ OP_BINPOW,  '^', 3, false, false },
 	{ OP_UNPLUS,  '+', 4, false, true },
 	{ OP_UNMINUS, '-', 4, false, true },
@@ -49,20 +51,44 @@ static Operator operators[] = {
 
 typedef enum {
 	FN_MAX,
-	FN_SUM,
+	FN_MIN,
+	FN_LOG10,
+	FN_LOG2,
+	FN_LN,
+	FN_SIN,
+	FN_ASIN,
+	FN_COS,
+	FN_ACOS,
+	FN_TAN,
+	FN_ATAN,
+	FN_CEIL,
+	FN_FLOOR,
+	FN_ROUND,
 	FN_SQRT,
 } FunctionId;
 
 typedef struct {
 	FunctionId id;
-	char name[16];
+	char name[8];
 	int arity;
 } Function;
 
 static Function functions[] = {
-	{ FN_MAX,  "max",  -1 },
-	{ FN_SUM,  "sum",  3 },
-	{ FN_SQRT, "sqrt", 1 },
+	{ FN_MAX,   "max",   -1 },
+	{ FN_MIN,   "min",   -1 },
+	{ FN_LOG10, "log10",  1 },
+	{ FN_LOG2,  "log2",   1 },
+	{ FN_LN,    "ln",     1 },
+	{ FN_SIN,   "sin",    1 },
+	{ FN_ASIN,  "asin",   1 },
+	{ FN_COS,   "cos",    1 },
+	{ FN_ACOS,  "acos",   1 },
+	{ FN_TAN,   "tan",    1 },
+	{ FN_ATAN,  "atan",   1 },
+	{ FN_CEIL,  "ceil",   1 },
+	{ FN_FLOOR, "floor",  1 },
+	{ FN_ROUND, "round",  1 },
+	{ FN_SQRT,  "sqrt",   1 },
 };
 
 
@@ -429,6 +455,7 @@ int main(int argc, char **argv) {
 					case OP_BINSUB:  result.number = lhs.number - rhs.number; break;
 					case OP_BINMUL:  result.number = lhs.number * rhs.number; break;
 					case OP_BINDIV:  result.number = lhs.number / rhs.number; break;
+					case OP_BINREM:  result.number = fmod(lhs.number, rhs.number); break;
 					case OP_BINPOW:  result.number = pow(lhs.number, rhs.number); break;
 					case OP_UNPLUS:  result.number = rhs.number; break;
 					case OP_UNMINUS: result.number = -rhs.number; break;
@@ -474,12 +501,25 @@ int main(int argc, char **argv) {
 							max = fargs[i] > max ? fargs[i] : max;
 						result.number = max;
 					} break;
-					case FN_SUM: {
-						result.number = fargs[0] + fargs[1] + fargs[2];
+					case FN_MIN: {
+						double min = fargs[0];
+						for (int i = 1; i < tk.call_arity; i++)
+							min = fargs[i] < min ? fargs[i] : min;
+						result.number = min;
 					} break;
-					case FN_SQRT: {
-						result.number = sqrt(fargs[0]);
-					} break;
+					case FN_LOG10: result.number = log10(fargs[0]); break;
+					case FN_LOG2:  result.number = log2(fargs[0]); break;
+					case FN_LN:    result.number = log(fargs[0]); break;
+					case FN_SIN:   result.number = sin(fargs[0]); break;
+					case FN_ASIN:  result.number = asin(fargs[0]); break;
+					case FN_COS:   result.number = cos(fargs[0]); break;
+					case FN_ACOS:  result.number = acos(fargs[0]); break;
+					case FN_TAN:   result.number = tan(fargs[0]); break;
+					case FN_ATAN:  result.number = atan(fargs[0]); break;
+					case FN_CEIL:  result.number = ceil(fargs[0]); break;
+					case FN_FLOOR: result.number = floor(fargs[0]); break;
+					case FN_ROUND: result.number = round(fargs[0]); break;
+					case FN_SQRT:  result.number = sqrt(fargs[0]); break;
 				}
 				tk_push(&eval_stack, result);
 
